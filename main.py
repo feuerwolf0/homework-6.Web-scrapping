@@ -15,6 +15,9 @@ import os
 # ------------- Конфигурация -------------
 QUERY = 'python, django, flask'  # Поисковый запрос
 URL = f'https://hh.ru/search/vacancy?text={quote(QUERY)}&area=1&area=2&search_field=description'
+USE_ONLY_USD = False # Искать только объявления, в которых зарплата указана в $$$ True или False 
+
+# URL2 = f'https://hh.ru/search/vacancy?text=python&area=1&area=2&search_field=description'
 
 
 def get_src_html(url, count_pages):
@@ -27,7 +30,7 @@ def get_src_html(url, count_pages):
     print('Начинаю сохранение страниц (может занять несколько минут)')
     # Цикл по всем страницам
     for page in range(int(count_pages)):
-        print(f'Загружаю {page} страницу')
+        print(f'Загружаю {page+1} страницу')
         new_url=url
         # Добавляю к url параметр старницы
         new_url+=f'&page={page}'
@@ -37,7 +40,6 @@ def get_src_html(url, count_pages):
         with open(f'temp/{page}.html', 'w', encoding='utf-8') as file:
             file.write(driver.page_source)
         print(f'Сохранил {page+1}/{count_pages} страниц')
-    
     
 
 def get_data_from_all_pages(url, header, count_pages):
@@ -63,8 +65,11 @@ def get_data_from_all_pages(url, header, count_pages):
             # Получаю ссылку на пост
             url = post.find('a', class_='serp-item__title')['href']
             # Получаю id поста из url
-            id = re.search(pattern_id, url)
-            id = id.group(0)[1:]
+            try:
+                id = re.search(pattern_id, url)
+                id = id.group(0)[1:]
+            except AttributeError:
+                id = '-'
 
             all_posts_tempdata['id'] = id
             all_posts_tempdata['Ссылка'] = url
@@ -75,7 +80,7 @@ def get_data_from_all_pages(url, header, count_pages):
                 all_posts_tempdata['Зарплата'] = salary
             # Если зарплата не указана
             except AttributeError:
-                all_posts_tempdata['Зарпата'] = 'Не указана'
+                all_posts_tempdata['Зарплата'] = 'Не указана'
             # Получаю название компании и нормализую
             company = post.find('div', class_='vacancy-serp-item__meta-info-company').find('a').text.strip().replace('\xa0', ' ')
             all_posts_tempdata['Компания'] = company
@@ -83,7 +88,12 @@ def get_data_from_all_pages(url, header, count_pages):
             all_posts_tempdata['Опыт'] = post.find('div', class_='bloko-h-spacing-container bloko-h-spacing-container_base-0').find('div', class_='bloko-text').text.strip()
 
             #Добавляю временный словарь в список всех постов
-            all_posts_data.append(all_posts_tempdata)
+            # Если включен "Только в USD" и зарплата в объявлении в USD заношу в список
+            if USE_ONLY_USD and 'USD' in all_posts_tempdata['Зарплата']:
+                all_posts_data.append(all_posts_tempdata)
+            # Если "Только в USD" выключен - добавляю объявление ко всем
+            if not USE_ONLY_USD:
+                all_posts_data.append(all_posts_tempdata)
             
         print(f'На странице {page+1} собраны все объявления')
 
@@ -121,7 +131,7 @@ def main():
     print('Количество страниц:', count_pages)
 
     # Сохраняю все страницы в папке temp
-    # get_src_html(url=URL, count_pages=count_pages)
+    get_src_html(url=URL, count_pages=count_pages)
 
     # Получаю все посты со всех страниц
     result = get_data_from_all_pages(URL, HEADER, count_pages)
@@ -130,8 +140,10 @@ def main():
     
     # Создаю файл и сохраняю в него все найденные посты
     print(f'Всего собрано объявлений: {len(result)}')
+
     with open(f'result_{current_time}.json', 'w', encoding='utf-8') as file:
         json.dump(result, file, indent=4, ensure_ascii=False)
+
     print(f'Объявления успешо сохранены в файл result_{current_time}.json')
 
     # Удаляю временные файлы использованные в процессе работы
