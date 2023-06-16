@@ -4,6 +4,7 @@ from urllib.parse import quote
 import fake_headers
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from concurrent.futures import ThreadPoolExecutor
 
 import re
 from datetime import datetime
@@ -15,31 +16,31 @@ import os
 # ------------- Конфигурация -------------
 QUERY = 'python, django, flask'  # Поисковый запрос
 URL = f'https://hh.ru/search/vacancy?text={quote(QUERY)}&area=1&area=2&search_field=description'
+# _PAGE_URL = f'https://hh.ru/search/vacancy?text={quote(QUERY)}&area=1&area=2&search_field=description&page={page}'
 USE_ONLY_USD = False # Искать только объявления, в которых зарплата указана в $$$ True или False 
 
 # URL2 = f'https://hh.ru/search/vacancy?text=python&area=1&area=2&search_field=description'
 
-
-def get_src_html(url, count_pages):
-    """Функция сохраняет все страницы во врменную папку temp"""
+def create_driver():
+    """Функция создает и возвращает объект драйвера"""
     options = Options()
     options.add_argument('headless')
     options.add_argument('--log-level=3')
     driver = webdriver.Chrome(options=options)
+    return driver
+
+
+def get_src_html(page_number):
+    """Функция сохраняет все страницы во врменную папку temp"""
     
-    print('Начинаю сохранение страниц (может занять несколько минут)')
-    # Цикл по всем страницам
-    for page in range(int(count_pages)):
-        print(f'Загружаю {page+1} страницу')
-        new_url=url
-        # Добавляю к url параметр старницы
-        new_url+=f'&page={page}'
-        # Получаю страницу
-        driver.get(url=new_url)
-        # Сохраняю получнную страницу в папку temp
-        with open(f'temp/{page}.html', 'w', encoding='utf-8') as file:
+    print(f'Начинаю сохранение страницы {page_number}')
+
+    new_url = URL + '&page={}'.format(page_number)
+    driver = create_driver()
+    driver.get(url=new_url)
+    with open(f'temp/{page_number}.html', 'w', encoding='utf-8') as file:
             file.write(driver.page_source)
-        print(f'Сохранил {page+1}/{count_pages} страниц')
+    print(f'Страница {page_number} сохранена')
     
 
 def get_data_from_all_pages(url, header, count_pages):
@@ -130,8 +131,12 @@ def main():
     count_pages = count_pages.find('span').text
     print('Количество страниц:', count_pages)
 
-    # Сохраняю все страницы в папке temp
-    get_src_html(url=URL, count_pages=count_pages)
+    # Создаю многопоточный pool с 10ю воркерами
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        # мультипоточно сохраняю страницы
+        pool.map(get_src_html, range(int(count_pages)))
+    # ожидаю завершения работы всех воркеров
+    pool.shutdown()
 
     # Получаю все посты со всех страниц
     result = get_data_from_all_pages(URL, HEADER, count_pages)
